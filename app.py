@@ -86,3 +86,118 @@ with st.sidebar:
 
 if st.session_state.raw_df is None or st.session_state.raw_df.empty:
     st.info("👈 Enter a repository source in the sidebar and click **Analyze** to get started.")
+    st.stop()
+
+if st.session_state.results is None and st.session_state.raw_df is not None:
+    st.session_state.results = analyze(st.session_state.raw_df, "All")
+
+import charts
+
+results = st.session_state.results
+stats = results["stats"]
+
+# ============================================================================
+# STAT CARDS
+# ============================================================================
+
+c1, c2, c3, c4, c5, c6 = st.columns(6)
+c1.metric("Total Commits", stats["total_commits"])
+c2.metric("Avg / Week", f"{stats['avg_per_week']:.1f}")
+c3.metric("Busiest Hour", f"{stats['busiest_hour']}:00" if stats["busiest_hour"] is not None else "—")
+c4.metric("Busiest Day", stats["busiest_day"] or "—")
+c5.metric("Longest Streak", f"{stats['longest_streak']}d")
+c6.metric("Current Streak", f"{stats['current_streak']}d")
+
+st.divider()
+
+# ============================================================================
+# HEATMAP
+# ============================================================================
+
+st.plotly_chart(charts.heatmap(results["heatmap"]), use_container_width=True)
+
+# ============================================================================
+# HOUR BAR + DAY BAR
+# ============================================================================
+
+col_h, col_d = st.columns(2)
+with col_h:
+    st.plotly_chart(charts.hourly_bar(results["hourly"]), use_container_width=True)
+with col_d:
+    st.plotly_chart(charts.daily_bar(results["daily"]), use_container_width=True)
+
+# ============================================================================
+# WEEKLY TREND
+# ============================================================================
+
+st.plotly_chart(charts.weekly_trend(results["weekly"]), use_container_width=True)
+
+# ============================================================================
+# STREAK CALENDAR + AUTHOR BARS
+# ============================================================================
+
+col_s, col_a = st.columns(2)
+with col_s:
+    st.plotly_chart(
+        charts.streak_calendar(results["streaks"]["streak_calendar"]),
+        use_container_width=True,
+    )
+with col_a:
+    st.plotly_chart(charts.author_bars(results["authors"]), use_container_width=True)
+
+st.divider()
+
+# ============================================================================
+# AI INSIGHTS
+# ============================================================================
+
+st.subheader("🤖 AI Insights")
+
+if st.button("Generate AI Summary", type="primary"):
+    import anthropic
+
+    sample_messages = results["messages"][:50]
+    prompt = f"""Analyze this git commit history and surface behavioral patterns.
+
+Stats:
+{stats}
+
+Sample commit messages ({len(sample_messages)} of {stats['total_commits']}):
+{chr(10).join(f'- {m}' for m in sample_messages)}
+
+Provide a concise markdown summary covering:
+1. Work patterns (peak hours, days, consistency)
+2. Commit behavior (frequency, streaks, gaps)
+3. Notable observations from the commit messages
+4. One actionable suggestion to improve habits
+"""
+    with st.spinner("Generating insights..."):
+        try:
+            client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+            response = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=1024,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            st.session_state.ai_summary = response.content[0].text
+        except Exception as e:
+            st.error(f"Error generating summary: {e}")
+
+if st.session_state.ai_summary:
+    st.markdown(st.session_state.ai_summary)
+
+st.divider()
+
+# ============================================================================
+# RAW DATA
+# ============================================================================
+
+with st.expander("Raw Commit Data"):
+    st.dataframe(results["df"], use_container_width=True)
+    csv = results["df"].to_csv(index=False)
+    st.download_button(
+        label="Download CSV",
+        data=csv,
+        file_name="gitlogs_commits.csv",
+        mime="text/csv",
+    )
