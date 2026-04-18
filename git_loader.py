@@ -4,6 +4,8 @@ from pathlib import Path
 import pandas as pd
 from git import Repo
 
+from github_client import get_user_repos
+
 _SEP = "\x1f"
 _LOG_FMT = f"%h{_SEP}%ae{_SEP}%an{_SEP}%aI{_SEP}%s"
 
@@ -50,3 +52,33 @@ def load_commits(source: str, branch: str = "main", max_commits: int = 500) -> p
     )
 
     return df
+
+
+def load_user_commits(
+    username: str,
+    token: str = None,
+    branch: str = "main",
+    max_repos: int = 10,
+    max_commits_per_repo: int = 200,
+) -> pd.DataFrame:
+    clone_urls = get_user_repos(username, token=token)[:max_repos]
+
+    frames = []
+    for url in clone_urls:
+        repo_name = url.rstrip("/").split("/")[-1].replace(".git", "")
+        try:
+            df = load_commits(url, branch=branch, max_commits=max_commits_per_repo)
+            if not df.empty:
+                df["repo"] = repo_name
+                frames.append(df)
+        except Exception:
+            continue
+
+    if not frames:
+        return pd.DataFrame()
+
+    combined = pd.concat(frames, ignore_index=True).sort_values("timestamp").reset_index(drop=True)
+    combined["gap_hours"] = (
+        combined["timestamp"].diff().dt.total_seconds().div(3600).round(2)
+    )
+    return combined
