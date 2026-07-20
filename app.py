@@ -1,6 +1,6 @@
 import streamlit as st
 
-from git_loader import load_commits
+from git_loader import load_commits, load_user_commits
 from analyzer import analyze, get_author_list
 
 # Initialize Streamlit page config
@@ -32,37 +32,51 @@ with st.sidebar:
     # Repo source
     source_type = st.radio(
         "Repository Source",
-        options=["GitHub URL", "Local Path"],
+        options=["GitHub URL", "Local Path", "GitHub User"],
         index=0,
     )
-    
+
     if source_type == "GitHub URL":
-        source = st.text_input(
-            "GitHub URL",
-            placeholder="https://github.com/user/repo",
-            value="",
-        )
+        source = st.text_input("GitHub URL", placeholder="https://github.com/user/repo", value="")
+        branch = st.text_input("Branch", value="main", placeholder="main")
+        max_commits = st.slider("Max Commits", min_value=10, max_value=1000, value=500)
+        gh_token = None
+        max_repos = None
+
+    elif source_type == "Local Path":
+        source = st.text_input("Local Path", placeholder="/path/to/repo", value="")
+        branch = st.text_input("Branch", value="main", placeholder="main")
+        max_commits = st.slider("Max Commits", min_value=10, max_value=1000, value=500)
+        gh_token = None
+        max_repos = None
+
     else:
-        source = st.text_input(
-            "Local Path",
-            placeholder="/path/to/repo",
-            value="",
-        )
-    
-    # Branch and max commits
-    branch = st.text_input("Branch", value="main", placeholder="main")
-    max_commits = st.slider("Max Commits", min_value=10, max_value=1000, value=500)
-    
+        source = st.text_input("GitHub Username", placeholder="SamGon24", value="")
+        gh_token = st.text_input("GitHub Token (optional)", type="password", value="")
+        max_repos = st.slider("Max Repos", min_value=1, max_value=20, value=5)
+        max_commits = st.slider("Max Commits per Repo", min_value=10, max_value=500, value=200)
+        branch = "main"
+
     # Analyze button
     analyze_button = st.button("🔍 Analyze", use_container_width=True, type="primary")
-    
+
     if analyze_button:
         if not source:
             st.error("Please enter a repository source.")
         else:
             with st.spinner("Loading commits..."):
                 try:
-                    st.session_state.raw_df = load_commits(source, branch, max_commits)
+                    if source_type == "GitHub User":
+                        st.session_state.raw_df = load_user_commits(
+                            source,
+                            token=gh_token or None,
+                            branch=branch,
+                            max_repos=max_repos,
+                            max_commits_per_repo=max_commits,
+                        )
+                    else:
+                        st.session_state.raw_df = load_commits(source, branch, max_commits)
+
                     if st.session_state.raw_df.empty:
                         st.error("No commits found.")
                     else:
